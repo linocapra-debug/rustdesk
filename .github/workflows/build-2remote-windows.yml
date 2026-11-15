@@ -297,6 +297,12 @@ jobs:
               Write-Host "Ingore the printer driver error."
           }
 
+      - name: Rinomina l'eseguibile in 2remote.exe
+        shell: bash
+        run: |
+          mv ./rustdesk/rustdesk.exe ./rustdesk/2remote.exe
+          ls -l ./rustdesk/2remote.exe
+
       - name: Run the Rust tests
         # x86_64 only: the tests are the same code on arm64, and that runner is the slow one.
         if: ${{ !inputs.upload-artifact && matrix.job.arch == 'x86_64' }}
@@ -349,7 +355,7 @@ jobs:
         if: env.UPLOAD_ARTIFACT == 'true' && env.PUBLISH_UPDATE_METADATA == 'true'
         shell: powershell
         run: |
-          $reportedVersion = (& ".\rustdesk\rustdesk.exe" --version | Out-String).Trim()
+          $reportedVersion = (& ".\rustdesk\2remote.exe" --version | Out-String).Trim()
           if ($LASTEXITCODE -ne 0) {
             throw "rustdesk --version exited with $LASTEXITCODE"
           }
@@ -375,7 +381,7 @@ jobs:
           sed -i '/dpiAware/d' res/manifest.xml
           pushd ./libs/portable
           pip3 install -r requirements.txt
-          python3 ./generate.py -f ../../rustdesk/ -e rustdesk.exe -l 11 -t "${{ matrix.job.target }}" --exclude-exe
+          python3 ./generate.py -f ../../rustdesk/ -e 2remote.exe -l 11 -t "${{ matrix.job.target }}" --exclude-exe
           popd
           mkdir -p ./packer-template
           cp ./target/${{ matrix.job.target }}/release/rustdesk-portable-packer.exe ./packer-template/rustdesk-template-${{ matrix.job.arch }}.exe
@@ -395,10 +401,10 @@ jobs:
           sed -i '/dpiAware/d' res/manifest.xml
           pushd ./libs/portable
           pip3 install -r requirements.txt
-          python3 ./generate.py -f ../../rustdesk/ -o . -e ../../rustdesk/rustdesk.exe
+          python3 ./generate.py -f ../../rustdesk/ -o . -e ../../rustdesk/2remote.exe
           popd
           mkdir -p ./SignOutput
-          mv ./target/release/rustdesk-portable-packer.exe ./SignOutput/rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.exe
+          mv ./target/release/rustdesk-portable-packer.exe ./SignOutput/2remote-${{ env.VERSION }}-${{ matrix.job.arch }}.exe
 
       - name: Add MSBuild to PATH
         uses: microsoft/setup-msbuild@6fb02220983dee41ce7ae257b6f4d8f9bf5ed4ce # v2
@@ -416,61 +422,20 @@ jobs:
         if: env.UPLOAD_ARTIFACT == 'true'
         run: |
           pushd ./res/msi
-          python preprocess.py --arp -d ../../rustdesk
+          python preprocess.py --arp -d ../../rustdesk --app-name 2remote
           nuget restore msi.sln
           $msiPlatform = if ('${{ matrix.job.arch }}' -eq 'aarch64') { 'ARM64' } else { 'x64' }
           msbuild msi.sln -p:Configuration=Release -p:Platform=$msiPlatform /p:TargetVersion=Windows10
           $msi = Get-ChildItem ./Package/bin/*/Release/en-us/Package.msi | Select-Object -First 1
-          mv $msi.FullName ../../SignOutput/rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.msi
-          sha256sum ../../SignOutput/rustdesk-*.msi
+          mv $msi.FullName ../../SignOutput/2remote-${{ env.VERSION }}-${{ matrix.job.arch }}.msi
+          sha256sum ../../SignOutput/2remote-*.msi
 
-      - name: Build pre-built MSI template
-        # Two things this works around: preprocess.py rewrites res/msi in place, so the
-        # tree is reset around this second variant; and it locates the app as
-        # <app-name>.exe inside the dist, so the dist copy is renamed to match.
-        #
-        # The placeholder is chosen to keep this template as close to the shipped msi as
-        # possible: eight characters like "RustDesk", and a valid 8.3 name, so WiX
-        # derives no short name for it. A longer placeholder would get one, and a patch
-        # cannot rewrite a truncated placeholder, leaving short names pointing at it.
-        #
-        # It still has to be unique, which is why "RustDesk" itself cannot be used:
-        # it also names payload that must never be renamed, such as librustdesk.dll
-        # and drivers\RustDeskPrinterDriver.
-        #
-        #
-        # Building the arm64 template on the native arm64 runner makes the ARM
-        # package available: the build agents are x64 and cannot run
-        # preprocess.py against an ARM exe.
-        if: env.UPLOAD_ARTIFACT == 'true'
-        run: |
-          git checkout -- res/msi
-          cp -r ./rustdesk ./rustdesk-msi-template
-          mv ./rustdesk-msi-template/rustdesk.exe ./rustdesk-msi-template/RDAPPNAM.exe
-          Set-Content -Path ./rustdesk-msi-template/custom.txt -Value 'placeholder' -NoNewline
-          $assets = './rustdesk-msi-template/data/flutter_assets/assets'
-          New-Item -ItemType Directory -Force -Path $assets | Out-Null
-          foreach ($a in 'icon.ico','icon.png','logo.png','logo_light.png','logo_dark.png') {
-            Set-Content -Path "$assets/$a" -Value 'placeholder' -NoNewline
-          }
-          pushd ./res/msi
-          python preprocess.py --arp --template --revision-version 0 -d ../../rustdesk-msi-template --app-name RDAPPNAM
-          $msiPlatform = if ('${{ matrix.job.arch }}' -eq 'aarch64') { 'ARM64' } else { 'x64' }
-          msbuild msi.sln -t:clean -p:Configuration=Release -p:Platform=$msiPlatform
-          msbuild msi.sln -p:Configuration=Release -p:Platform=$msiPlatform /p:TargetVersion=Windows10
-          $msi = Get-ChildItem ./Package/bin/*/Release/en-us/Package.msi | Select-Object -First 1
-          popd
-          mkdir ./msi-template
-          mv $msi.FullName ./msi-template/rustdesk-template-${{ matrix.job.arch }}.msi
-          git checkout -- res/msi
-          rm -r -fo ./rustdesk-msi-template
-
-      - name: Upload unsigned msi template
+      - name: Carica installer Windows 2remote
         if: env.UPLOAD_ARTIFACT == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: rustdesk-unsigned-msi-template-${{ matrix.job.arch }}
-          path: ./msi-template
+          name: 2remote-windows-${{ matrix.job.arch }}-installer
+          path: ./SignOutput
 
       - name: Sign rustdesk self-extracted file
         if: env.UPLOAD_ARTIFACT == 'true' && env.SIGN_BASE_URL != '-2'
@@ -493,15 +458,3 @@ jobs:
           name: windows-flutter-${{ matrix.job.arch }}-msi
           path: ./SignOutput/rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.msi
           if-no-files-found: error
-
-      - name: Publish Release
-        uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
-        if: env.UPLOAD_ARTIFACT == 'true' && env.PUBLISH_UPDATE_METADATA != 'true'
-        with:
-          prerelease: true
-          tag_name: ${{ env.TAG_NAME }}
-          files: |
-            ./SignOutput/rustdesk-*.msi
-            ./SignOutput/rustdesk-*.exe
-
-  # The fallback for the flutter version, we use Sciter for 32bit Windows.
