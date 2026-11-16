@@ -89,7 +89,7 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "Purslane Tech Pte. Ltd." "\0"
+            VALUE "CompanyName", "ARIALL S.r.l." "\0"
             VALUE "FileDescription", "2remote Remote Desktop" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
             VALUE "InternalName", "rustdesk" "\0"
